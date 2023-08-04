@@ -1,4 +1,6 @@
 from typing import Iterator, Tuple, Any
+from pathlib import Path
+import os
 
 import glob
 import numpy as np
@@ -7,7 +9,14 @@ import tensorflow_datasets as tfds
 import tensorflow_hub as hub
 
 
-class ExampleDataset(tfds.core.GeneratorBasedBuilder):
+# function: get all folders of type iteration
+def get_iter_folders(proot: Path):
+    subdirs = [Path(f[0]) for f in os.walk(str(proot))]
+    subdirs = [str(f) for f in subdirs if 'iteration' in f.name]
+    return subdirs
+
+
+class AgentAwareAffordances(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -29,26 +38,18 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
                             shape=(64, 64, 3),
                             dtype=np.uint8,
                             encoding_format='png',
-                            doc='Main camera RGB observation.',
-                        ),
-                        'wrist_image': tfds.features.Image(
-                            shape=(64, 64, 3),
-                            dtype=np.uint8,
-                            encoding_format='png',
-                            doc='Wrist camera RGB observation.',
+                            doc='Main camera RGB observation. Not available for this dataset, will be set to np.zeros.',
                         ),
                         'state': tfds.features.Tensor(
-                            shape=(10,),
+                            shape=(8,),
                             dtype=np.float32,
-                            doc='Robot state, consists of [7x robot joint angles, '
-                                '2x gripper position, 1x door opening angle].',
+                            doc='State, consists of [end-effector pose (x,y,z,yaw,pitch,roll) in world frame, 1x gripper open/close, 1x door opening angle].',
                         )
                     }),
                     'action': tfds.features.Tensor(
-                        shape=(10,),
+                        shape=(6,),
                         dtype=np.float32,
-                        doc='Robot action, consists of [7x joint velocities, '
-                            '2x gripper velocities, 1x terminate episode].',
+                        doc='Robot action, consists of [end-effector velocity (v_x,v_y,v_z,omega_x,omega_y,omega_z) in world frame',
                     ),
                     'discount': tfds.features.Scalar(
                         dtype=np.float32,
@@ -84,42 +85,81 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
                     'file_path': tfds.features.Text(
                         doc='Path to the original data file.'
                     ),
+                    'input_point_cloud': tfds.features.Tensor(
+                        shape=(50000,3),
+                        dtype=np.float32,
+                        doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (50000,3).'
+                    ),
                 }),
             }))
 
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='data/train/episode_*.npy'),
-            'val': self._generate_examples(path='data/val/episode_*.npy'),
+            'train': self._generate_examples(path='../experiment_data_v1'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
         """Generator of examples for each split."""
+        print('generating examples')
 
-        def _parse_example(episode_path):
+        def _parse_example(episode_path:str):
             # load raw data --> this should change for your dataset
-            data = np.load(episode_path, allow_pickle=True)     # this is a list of dicts in our case
+            # data = np.load(episode_path, allow_pickle=True)     # this is a list of dicts in our case
+            task = 'open' if 'open' in episode_path else 'close'
+            print(f'task is {task}')
+
+            epath = Path(episode_path)
+
+            if not os.path.isfile(str(epath/'pcd_np.npy')):
+                # check if episode is empty
+                return None
+            
+
+            point_cloud = np.load(epath/'pcd_np.npy').astype(np.float32)
+            # ee_trajectory is [x,y,z,yaw,pitch,roll]
+            ee_trajectory = np.load(epath/'ee_poses.npy').astype(np.float32)
+            # ee_velocity is [v_x,v_y,v_z,omega_x,omega_y,omega_z]
+            ee_velocity = np.load(epath/'ee_velocities.npy').astype(np.float32)
+            # oven opening angle
+            object_states = np.load(epath/'oven_states.npy').astype(np.float32)
+
+            episode_length = max(object_states.shape)
+
+            if task == 'open':
+                task_success = (object_states[-1] - object_states[0]) > 10
+                instruction = 'open the oven'
+            else:
+                task_success = (object_states[0] - object_states[-1]) > 10
+                instruction = 'close the oven'
+
 
             # assemble episode --> here we're assuming demos so we set reward to 1 at the end
             episode = []
-            for i, step in enumerate(data):
+            for i in range(episode_length):
                 # compute Kona language embedding
-                language_embedding = self._embed([step['language_instruction']])[0].numpy()
+                language_embedding = self._embed([instruction])[0].numpy()
+
+                if float(i == (episode_length - 1)):
+                    reward = 1.0 if task_success else 0.0
+                else:
+                    reward = 0.
+
+                gripper_state = np.array([0]).astype(np.float32)
+                state = np.concatenate([ee_trajectory[i], gripper_state, object_states[i]]).astype(np.float32)
 
                 episode.append({
                     'observation': {
-                        'image': step['image'],
-                        'wrist_image': step['wrist_image'],
-                        'state': step['state'],
+                        'image': np.asarray(np.zeros((64, 64, 3)), dtype=np.uint8),
+                        'state': state,
                     },
-                    'action': step['action'],
+                    'action': ee_velocity[i],
                     'discount': 1.0,
-                    'reward': float(i == (len(data) - 1)),
+                    'reward': np.array(reward).astype(np.float32),
                     'is_first': i == 0,
-                    'is_last': i == (len(data) - 1),
-                    'is_terminal': i == (len(data) - 1),
-                    'language_instruction': step['language_instruction'],
+                    'is_last': i == (episode_length - 1),
+                    'is_terminal': i == (episode_length - 1),
+                    'language_instruction': instruction,
                     'language_embedding': language_embedding,
                 })
 
@@ -127,7 +167,8 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
             sample = {
                 'steps': episode,
                 'episode_metadata': {
-                    'file_path': episode_path
+                    'file_path': episode_path,
+                    'input_point_cloud': point_cloud
                 }
             }
 
@@ -135,11 +176,13 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
             return episode_path, sample
 
         # create list of all examples
-        episode_paths = glob.glob(path)
+        episode_paths = get_iter_folders(path)
 
         # for smallish datasets, use single-thread parsing
         for sample in episode_paths:
-            yield _parse_example(sample)
+            res = _parse_example(sample)
+            if res is not None:
+                yield res
 
         # for large datasets use beam to parallelize data parsing (this will have initialization overhead)
         # beam = tfds.core.lazy_imports.apache_beam

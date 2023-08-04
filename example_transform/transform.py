@@ -63,12 +63,16 @@ def transform_step(step: Dict[str, Any]) -> Dict[str, Any]:
        Input is dict of numpy arrays."""
     img = Image.fromarray(step['observation']['image']).resize(
         (128, 128), Image.Resampling.LANCZOS)
+    
+    # in the dataset, this is [end-effector pose (x,y,z,yaw,pitch,roll) in world frame, 1x gripper open/close, 1x door opening angle]
+    action = step['observation']['state']
+    # the dataset doesn't have a true termination condition
+    action[-1] = step['is_last']
     transformed_step = {
         'observation': {
             'image': np.array(img),
         },
-        'action': np.concatenate(
-            [step['action'][:3], step['action'][5:8], step['action'][-2:]]),
+        'action': action,
     }
 
     # copy over all other fields unchanged
