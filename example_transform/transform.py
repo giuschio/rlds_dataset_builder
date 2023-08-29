@@ -71,7 +71,7 @@ def transform_step(step: Dict[str, Any]) -> Dict[str, Any]:
     transformed_step = {
         'observation': {
             'image': np.array(img),
-            'input_point_cloud': np.array(step['input_point_cloud'])
+            'input_point_cloud': np.array(step['observation']['input_point_cloud']).astype(np.float32)
         },
         'action': action,
     }

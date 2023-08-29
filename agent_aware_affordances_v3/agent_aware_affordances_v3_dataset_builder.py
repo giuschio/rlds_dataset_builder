@@ -16,7 +16,7 @@ def get_iter_folders(proot: Path):
     return subdirs
 
 
-class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
+class AgentAwareAffordancesV3(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -46,9 +46,9 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
                             doc='State, consists of [end-effector pose (x,y,z,yaw,pitch,roll) in world frame, 1x gripper open/close, 1x door opening angle].',
                         ),
                         'input_point_cloud': tfds.features.Tensor(
-                            shape=(50000,3),
-                            dtype=np.float32,
-                            doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (50000,3).'
+                            shape=(10000,3),
+                            dtype=np.float16,
+                            doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (10000,3).'
                         ),
                     }),
                     'action': tfds.features.Tensor(
@@ -91,9 +91,9 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
                         doc='Path to the original data file.'
                     ),
                     'input_point_cloud': tfds.features.Tensor(
-                        shape=(50000,3),
-                        dtype=np.float32,
-                        doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (50000,3).'
+                        shape=(10000,3),
+                        dtype=np.float16,
+                        doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (10000,3).'
                     ),
                 }),
             }))
@@ -101,7 +101,7 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='../experiment_data_v1'),
+            'train': self._generate_examples(path='../experiment_data_v3'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
@@ -121,7 +121,8 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
                 return None
             
 
-            point_cloud = np.load(epath/'pcd_np.npy').astype(np.float32)
+            point_cloud = np.load(epath/'pcd_np.npy').astype(np.float16)
+            point_cloud = point_cloud[np.random.choice(point_cloud.shape[0], size=10000, replace=False)]
             # ee_trajectory is [x,y,z,yaw,pitch,roll]
             ee_trajectory = np.load(epath/'ee_poses.npy').astype(np.float32)
             # ee_velocity is [v_x,v_y,v_z,omega_x,omega_y,omega_z]
