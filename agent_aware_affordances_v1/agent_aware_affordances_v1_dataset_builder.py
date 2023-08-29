@@ -44,7 +44,12 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
                             shape=(8,),
                             dtype=np.float32,
                             doc='State, consists of [end-effector pose (x,y,z,yaw,pitch,roll) in world frame, 1x gripper open/close, 1x door opening angle].',
-                        )
+                        ),
+                        'input_point_cloud': tfds.features.Tensor(
+                            shape=(50000,3),
+                            dtype=np.float32,
+                            doc='Point cloud (geometry only) of the object at the beginning of the episode (world frame) as a numpy array (50000,3).'
+                        ),
                     }),
                     'action': tfds.features.Tensor(
                         shape=(6,),
@@ -156,6 +161,7 @@ class AgentAwareAffordancesV1(tfds.core.GeneratorBasedBuilder):
                     'observation': {
                         'image': np.asarray(np.zeros((64, 64, 3)), dtype=np.uint8),
                         'state': state,
+                        'input_point_cloud': point_cloud,
                     },
                     'action': ee_velocity[i],
                     'discount': 1.0,
