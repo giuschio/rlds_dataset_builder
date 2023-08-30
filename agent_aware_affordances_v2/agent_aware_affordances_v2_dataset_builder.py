@@ -16,7 +16,7 @@ def get_iter_folders(proot: Path):
     return subdirs
 
 
-class AgentAwareAffordancesV3(tfds.core.GeneratorBasedBuilder):
+class AgentAwareAffordancesV2(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -101,7 +101,7 @@ class AgentAwareAffordancesV3(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='../experiment_data_v3'),
+            'train': self._generate_examples(path='../experiment_data_v2'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
@@ -129,10 +129,6 @@ class AgentAwareAffordancesV3(tfds.core.GeneratorBasedBuilder):
             ee_velocity = np.load(epath/'ee_velocities.npy').astype(np.float32)
             # oven opening angle
             object_states = np.load(epath/'oven_states.npy').astype(np.float32)
-
-            point_cloud /= 4.0
-            ee_trajectory[:, :3] /= 4.0
-            ee_velocity[:, :3] /= 4.0
 
             episode_length = max(object_states.shape)
 
